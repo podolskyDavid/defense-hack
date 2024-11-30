@@ -5,11 +5,6 @@ import { Compass } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-// Define the type for iOS DeviceOrientationEvent
-interface IOSDeviceOrientationEvent extends DeviceOrientationEvent {
-  requestPermission?: () => Promise<PermissionState>;
-}
-
 const MagnetometerDemo = () => {
   const [permission, setPermission] = useState<PermissionState>('prompt');
   const [heading, setHeading] = useState<number | null>(null);
@@ -22,7 +17,6 @@ const MagnetometerDemo = () => {
     }
 
     const requestPermission = async () => {
-      // Cast to our custom interface that includes requestPermission
       const DeviceOrientationEventIOS = DeviceOrientationEvent as unknown as {
         requestPermission?: () => Promise<PermissionState>;
       };
@@ -45,7 +39,6 @@ const MagnetometerDemo = () => {
     };
 
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      // alpha is the compass direction the device is facing
       const alpha = event.alpha;
       if (alpha !== null) {
         setHeading(Math.round(alpha));
@@ -59,27 +52,15 @@ const MagnetometerDemo = () => {
     };
   }, []);
 
-  const requestPermissionButton = () => {
+  const handlePermissionRequest = async () => {
     const DeviceOrientationEventIOS = DeviceOrientationEvent as unknown as {
       requestPermission?: () => Promise<PermissionState>;
     };
 
-    if (permission === 'prompt' || permission === 'denied') {
-      return (
-        <button
-          onClick={async () => {
-            if (DeviceOrientationEventIOS.requestPermission) {
-              const newPermission = await DeviceOrientationEventIOS.requestPermission();
-              setPermission(newPermission);
-            }
-          }}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Enable Magnetometer Access
-        </button>
-      );
+    if (DeviceOrientationEventIOS.requestPermission) {
+      const newPermission = await DeviceOrientationEventIOS.requestPermission();
+      setPermission(newPermission);
     }
-    return null;
   };
 
   return (
@@ -107,7 +88,14 @@ const MagnetometerDemo = () => {
             ) : (
               <div className="text-gray-600">
                 Waiting for sensor data...
-                {requestPermissionButton()}
+                {(permission === 'prompt' || permission === 'denied') && (
+                  <button
+                    onClick={handlePermissionRequest}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    Enable Magnetometer Access
+                  </button>
+                )}
               </div>
             )}
           </div>
