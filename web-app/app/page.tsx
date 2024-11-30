@@ -1,114 +1,140 @@
-"use client"
+"use client";
 
 import React, { useState, useEffect } from 'react';
-import { Compass } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
 
-const MagnetometerDemo = () => {
-  const [heading, setHeading] = useState<number | null>(null);
+const SensorDisplay = () => {
+  const [sensorData, setSensorData] = useState({
+    acc: { x: 'N/A', y: 'N/A', z: 'N/A' },
+    accG: { x: 'N/A', y: 'N/A', z: 'N/A' },
+    mag: { x: 'N/A', y: 'N/A', z: 'N/A' }
+  });
   const [error, setError] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState(false);
 
-  useEffect(() => {
-    if (!window.DeviceOrientationEvent) {
-      setError('Your device does not support orientation detection');
-      return;
-    }
-
-    if (isListening) {
-      window.addEventListener('deviceorientation', handleOrientation);
-
-      return () => {
-        window.removeEventListener('deviceorientation', handleOrientation);
-      };
-    }
-  }, [isListening]);
-
-  const handleOrientation = (event: DeviceOrientationEvent) => {
-    const alpha = event.alpha;
-    if (alpha !== null) {
-      setHeading(Math.round(alpha));
-    }
-  };
-
-  const handlePermissionRequest = async () => {
+  const setupSensors = async () => {
     try {
-      const DeviceOrientationEventIOS = DeviceOrientationEvent as unknown as {
-        requestPermission?: () => Promise<PermissionState>;
-      };
+      // Request motion permission on iOS
+      const DeviceMotionEvent = window.DeviceMotionEvent as any;
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        const permission = await DeviceMotionEvent.requestPermission();
+        if (permission !== 'granted') {
+          throw new Error('Motion permission denied');
+        }
+      }
 
-      if (typeof DeviceOrientationEventIOS.requestPermission === 'function') {
-        const permissionResult = await DeviceOrientationEventIOS.requestPermission();
-        if (permissionResult === 'granted') {
-          setIsListening(true);
-        } else {
-          setError('Permission denied. Please enable compass access to use this feature.');
+      // Set up motion listener
+      window.addEventListener('devicemotion', (event: DeviceMotionEvent) => {
+        const acceleration = event.acceleration;
+        const accelerationWithG = event.accelerationIncludingGravity;
+
+        setSensorData(prev => ({
+          ...prev,
+          acc: {
+            x: acceleration?.x?.toFixed(3) || 'N/A',
+            y: acceleration?.y?.toFixed(3) || 'N/A',
+            z: acceleration?.z?.toFixed(3) || 'N/A'
+          },
+          accG: {
+            x: accelerationWithG?.x?.toFixed(3) || 'N/A',
+            y: accelerationWithG?.y?.toFixed(3) || 'N/A',
+            z: accelerationWithG?.z?.toFixed(3) || 'N/A'
+          }
+        }));
+      });
+
+      // Try to set up magnetometer
+      // @ts-ignore
+      if ('Magnetometer' in window) {
+        try {
+          // @ts-ignore
+          const sensor = new Magnetometer({ frequency: 60 });
+
+          sensor.addEventListener('reading', () => {
+            setSensorData(prev => ({
+              ...prev,
+              mag: {
+                x: sensor.x.toFixed(3),
+                y: sensor.y.toFixed(3),
+                z: sensor.z.toFixed(3)
+              }
+            }));
+          });
+
+          sensor.addEventListener('error', (error: Error) => {
+            setError('Magnetometer error: ' + error.message);
+          });
+
+          await sensor.start();
+        } catch (e) {
+          setError('Magnetometer initialization failed: ' + (e as Error).message);
         }
       } else {
-        // For non-iOS devices, just start listening
-        setIsListening(true);
+        // Try alternative approach using deviceorientation event
+        window.addEventListener('deviceorientation', (event: DeviceOrientationEvent) => {
+          const alpha = event.alpha; // z-axis rotation
+          const beta = event.beta;   // x-axis rotation
+          const gamma = event.gamma; // y-axis rotation
+
+          if (alpha !== null && beta !== null && gamma !== null) {
+            setSensorData(prev => ({
+              ...prev,
+              mag: {
+                x: beta.toFixed(3),
+                y: gamma.toFixed(3),
+                z: alpha.toFixed(3)
+              }
+            }));
+          }
+        });
       }
-    } catch (err) {
-      setError('Failed to get permission: ' + (err instanceof Error ? err.message : String(err)));
+    } catch (error) {
+      setError('Sensor initialization failed: ' + (error as Error).message);
     }
   };
 
-  const getDirectionText = (degrees: number): string => {
-    if (degrees >= 337.5 || degrees < 22.5) return 'North';
-    if (degrees >= 22.5 && degrees < 67.5) return 'Northeast';
-    if (degrees >= 67.5 && degrees < 112.5) return 'East';
-    if (degrees >= 112.5 && degrees < 157.5) return 'Southeast';
-    if (degrees >= 157.5 && degrees < 202.5) return 'South';
-    if (degrees >= 202.5 && degrees < 247.5) return 'Southwest';
-    if (degrees >= 247.5 && degrees < 292.5) return 'West';
-    return 'Northwest';
-  };
+  useEffect(() => {
+    // Initial setup
+    setupSensors();
+
+    return () => {
+      window.removeEventListener('devicemotion', () => {});
+      window.removeEventListener('deviceorientation', () => {});
+    };
+  }, []);
+
+  const DataSection = ({ title, data }: { title: string; data: { x: string; y: string; z: string } }) => (
+    <div className="space-y-2">
+      <h2 className="font-mono font-bold">{title}</h2>
+      <div className="grid grid-cols-2 gap-x-8 gap-y-2 font-mono">
+        <div>X:</div><div>{data.x}</div>
+        <div>Y:</div><div>{data.y}</div>
+        <div>Z:</div><div>{data.z}</div>
+      </div>
+    </div>
+  );
 
   return (
     <Card className="w-full max-w-md mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Compass className="h-6 w-6" />
-          Compass
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : (
-          <div className="text-center space-y-4">
-            {heading !== null ? (
-              <>
-                <div className="text-4xl font-bold">{heading}°</div>
-                <div className="text-xl text-gray-600">
-                  {getDirectionText(heading)}
-                </div>
-              </>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-gray-600">
-                  {isListening
-                    ? 'Waiting for sensor data...'
-                    : 'Click the button below to enable compass access'}
-                </p>
-                {!isListening && (
-                  <button
-                    onClick={handlePermissionRequest}
-                    className="mt-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                  >
-                    Enable Compass
-                  </button>
-                )}
-              </div>
-            )}
+      <CardContent className="p-6 space-y-6">
+        <DataSection title="ACCELERATION (M/S²)" data={sensorData.acc} />
+        <DataSection title="ACCELERATION + G (M/S²)" data={sensorData.accG} />
+        <DataSection title="MAGNETIC FIELD (µT)" data={sensorData.mag} />
+
+        {error && (
+          <div className="text-red-500 font-mono text-sm mt-4">
+            {error}
           </div>
         )}
+
+        <button
+          onClick={setupSensors}
+          className="w-full mt-4 px-4 py-2 bg-blue-500 text-white rounded font-mono hover:bg-blue-600 transition-colors"
+        >
+          REINITIALIZE SENSORS
+        </button>
       </CardContent>
     </Card>
   );
 };
 
-export default MagnetometerDemo;
+export default SensorDisplay;
