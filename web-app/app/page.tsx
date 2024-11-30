@@ -8,7 +8,14 @@ import { PathData } from '@/lib/types';
 // Dynamically import the 3D visualization component to avoid SSR issues
 const Visualizer = dynamic(
   () => import('@/components/visualization/PathVisualizer'),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-screen items-center justify-center bg-gray-900">
+        <div className="text-white text-xl">Loading 3D visualization...</div>
+      </div>
+    ),
+  }
 );
 import { ControlPanel } from '@/components/visualization/ControlPanel';
 

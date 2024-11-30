@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo } from 'react';
-import { Canvas} from '@react-three/fiber';
-import { OrbitControls, Line } from '@react-three/drei';
+import { useMemo, Suspense } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Line, Stats } from '@react-three/drei';
 import * as THREE from 'three';
 import { PathData, Position } from '@/lib/types';
-import {interpolateMagneticField} from "@/lib/interpolation";
+import { interpolateMagneticField } from "@/lib/interpolation";
 
 const colors = [
   '#ff0000',
@@ -21,7 +21,7 @@ interface PathLineProps {
   color: string;
 }
 
-function PathLine({ positions, color }: PathLineProps) {
+function PathLine({positions, color}: PathLineProps) {
   const points = positions.map(p => new THREE.Vector3(p.x, p.y, p.z));
 
   return (
@@ -39,7 +39,7 @@ interface HeatmapProps {
   maxValue: number;
 }
 
-function Heatmap({ interpolatedData, minValue, maxValue }: HeatmapProps) {
+function Heatmap({interpolatedData, minValue, maxValue}: HeatmapProps) {
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     const vertices: number[] = [];
@@ -94,35 +94,40 @@ export default function Visualizer({ paths, gridSize, radius }: VisualizerProps)
   return (
     <div className="w-full h-screen">
       <Canvas
-        camera={{ position: [10, 10, 10] }}
+        camera={{ position: [10, 10, 10], fov: 75 }}
         className="bg-gray-900"
+        dpr={[1, 2]}
       >
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} />
+        <Suspense fallback={null}>
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} />
 
-        {/* Paths */}
-        {paths.map((path, index) => (
-          <PathLine
-            key={path.session_name}
-            positions={path.positions}
-            color={colors[index % colors.length]}
+          {/* Paths */}
+          {paths.map((path, index) => (
+            <PathLine
+              key={path.session_name}
+              positions={path.positions}
+              color={colors[index % colors.length]}
+            />
+          ))}
+
+          {/* Heatmap */}
+          <Heatmap
+            interpolatedData={interpolatedData}
+            minValue={minValue}
+            maxValue={maxValue}
           />
-        ))}
 
-        {/* Heatmap */}
-        <Heatmap
-          interpolatedData={interpolatedData}
-          minValue={minValue}
-          maxValue={maxValue}
-        />
+          {/* Controls */}
+          <OrbitControls />
 
-        {/* Controls */}
-        <OrbitControls />
-
-        {/* Grid and axes helpers */}
-        <gridHelper args={[20, 20]} />
-        <axesHelper args={[5]} />
+          {/* Grid and axes helpers */}
+          <gridHelper args={[20, 20]} />
+          <axesHelper args={[5]} />
+        </Suspense>
+        <Stats />
       </Canvas>
     </div>
   );
 }
+
