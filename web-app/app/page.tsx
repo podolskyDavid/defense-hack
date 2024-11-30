@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const MagnetometerDemo = () => {
-  const [permission, setPermission] = useState<PermissionState>('prompt');
   const [heading, setHeading] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
 
   useEffect(() => {
     if (!window.DeviceOrientationEvent) {
@@ -16,51 +16,53 @@ const MagnetometerDemo = () => {
       return;
     }
 
-    const requestPermission = async () => {
+    if (isListening) {
+      window.addEventListener('deviceorientation', handleOrientation);
+
+      return () => {
+        window.removeEventListener('deviceorientation', handleOrientation);
+      };
+    }
+  }, [isListening]);
+
+  const handleOrientation = (event: DeviceOrientationEvent) => {
+    const alpha = event.alpha;
+    if (alpha !== null) {
+      setHeading(Math.round(alpha));
+    }
+  };
+
+  const handlePermissionRequest = async () => {
+    try {
       const DeviceOrientationEventIOS = DeviceOrientationEvent as unknown as {
         requestPermission?: () => Promise<PermissionState>;
       };
 
       if (typeof DeviceOrientationEventIOS.requestPermission === 'function') {
-        try {
-          const permissionState = await DeviceOrientationEventIOS.requestPermission();
-          setPermission(permissionState);
-
-          if (permissionState === 'granted') {
-            window.addEventListener('deviceorientation', handleOrientation);
-          }
-        } catch (err) {
-          setError('Failed to get permission: ' + (err instanceof Error ? err.message : String(err)));
+        const permissionResult = await DeviceOrientationEventIOS.requestPermission();
+        if (permissionResult === 'granted') {
+          setIsListening(true);
+        } else {
+          setError('Permission denied. Please enable compass access to use this feature.');
         }
       } else {
-        // Non-iOS devices don't need explicit permission
-        window.addEventListener('deviceorientation', handleOrientation);
+        // For non-iOS devices, just start listening
+        setIsListening(true);
       }
-    };
-
-    const handleOrientation = (event: DeviceOrientationEvent) => {
-      const alpha = event.alpha;
-      if (alpha !== null) {
-        setHeading(Math.round(alpha));
-      }
-    };
-
-    requestPermission();
-
-    return () => {
-      window.removeEventListener('deviceorientation', handleOrientation);
-    };
-  }, []);
-
-  const handlePermissionRequest = async () => {
-    const DeviceOrientationEventIOS = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<PermissionState>;
-    };
-
-    if (DeviceOrientationEventIOS.requestPermission) {
-      const newPermission = await DeviceOrientationEventIOS.requestPermission();
-      setPermission(newPermission);
+    } catch (err) {
+      setError('Failed to get permission: ' + (err instanceof Error ? err.message : String(err)));
     }
+  };
+
+  const getDirectionText = (degrees: number): string => {
+    if (degrees >= 337.5 || degrees < 22.5) return 'North';
+    if (degrees >= 22.5 && degrees < 67.5) return 'Northeast';
+    if (degrees >= 67.5 && degrees < 112.5) return 'East';
+    if (degrees >= 112.5 && degrees < 157.5) return 'Southeast';
+    if (degrees >= 157.5 && degrees < 202.5) return 'South';
+    if (degrees >= 202.5 && degrees < 247.5) return 'Southwest';
+    if (degrees >= 247.5 && degrees < 292.5) return 'West';
+    return 'Northwest';
   };
 
   return (
@@ -68,7 +70,7 @@ const MagnetometerDemo = () => {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Compass className="h-6 w-6" />
-          Magnetometer Reading
+          Compass
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -77,23 +79,27 @@ const MagnetometerDemo = () => {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : (
-          <div className="text-center">
+          <div className="text-center space-y-4">
             {heading !== null ? (
-              <div className="space-y-4">
+              <>
                 <div className="text-4xl font-bold">{heading}°</div>
-                <div className="text-gray-600">
-                  Device is pointing {heading} degrees from magnetic north
+                <div className="text-xl text-gray-600">
+                  {getDirectionText(heading)}
                 </div>
-              </div>
+              </>
             ) : (
-              <div className="text-gray-600">
-                Waiting for sensor data...
-                {(permission === 'prompt' || permission === 'denied') && (
+              <div className="space-y-4">
+                <p className="text-gray-600">
+                  {isListening
+                    ? 'Waiting for sensor data...'
+                    : 'Click the button below to enable compass access'}
+                </p>
+                {!isListening && (
                   <button
                     onClick={handlePermissionRequest}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    className="mt-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                   >
-                    Enable Magnetometer Access
+                    Enable Compass
                   </button>
                 )}
               </div>
