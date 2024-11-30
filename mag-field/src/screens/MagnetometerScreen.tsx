@@ -120,7 +120,7 @@ export default function MagnetometerScreen(): React.JSX.Element {
 
   const subscribeToMagnetometer = (): void => {
     setMagnetometerSubscription(
-      Magnetometer.addListener((data: MagnetometerMeasurement) => {
+      Magnetometer.addListener((data: MagneticData) => {
         setMagnetometerData(data);
       })
     );

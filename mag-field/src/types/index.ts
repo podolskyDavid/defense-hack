@@ -7,7 +7,7 @@ export interface MagneticData {
 export interface LocationData {
   latitude: number;
   longitude: number;
-  accuracy?: number;
+  accuracy?: number | null;
   altitude?: number | null;
   altitudeAccuracy?: number | null;
   heading?: number | null;
@@ -18,4 +18,9 @@ export interface MagneticSample {
   timestamp: number;
   magnetic: MagneticData;
   location: LocationData;
+}
+
+// simplified subscription type that matches what we need
+export interface SensorSubscription {
+  remove: () => void;
 }
