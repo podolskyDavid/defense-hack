@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, Button, Dimensions } from 'react-native';
-import { Magnetometer, MagnetometerMeasurement } from 'expo-sensors';
+import { StyleSheet, View, Text, Button } from 'react-native';
+import { Magnetometer } from 'expo-sensors';
 import * as Location from 'expo-location';
 import type { LocationObject, LocationSubscription } from 'expo-location';
-import type { Subscription } from 'expo-sensors/build/Subscription';
-import type { MagneticData, LocationData } from '../types';
+import type { MagneticData, LocationData, SensorSubscription } from 'types';
 
 export default function MagnetometerScreen(): React.JSX.Element {
   const [magnetometerData, setMagnetometerData] = useState<MagneticData>({ x: 0, y: 0, z: 0 });
   const [location, setLocation] = useState<LocationData | null>(null);
-  const [magnetometerSubscription, setMagnetometerSubscription] = useState<Subscription | null>(null);
+  const [magnetometerSubscription, setMagnetometerSubscription] = useState<SensorSubscription | null>(null);
   const [locationSubscription, setLocationSubscription] = useState<LocationSubscription | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
 
@@ -34,7 +33,7 @@ export default function MagnetometerScreen(): React.JSX.Element {
   const subscribe = async (): Promise<void> => {
     // Subscribe to magnetometer
     setMagnetometerSubscription(
-      Magnetometer.addListener((data: MagnetometerMeasurement) => {
+      Magnetometer.addListener((data: MagneticData) => {
         setMagnetometerData(data);
       })
     );
@@ -42,9 +41,9 @@ export default function MagnetometerScreen(): React.JSX.Element {
     // Subscribe to location updates
     const locationSub = await Location.watchPositionAsync(
       {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 1000,
-        distanceInterval: 1
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 10,
+        distanceInterval: 0.01
       },
       (locationObject: LocationObject) => {
         setLocation({
