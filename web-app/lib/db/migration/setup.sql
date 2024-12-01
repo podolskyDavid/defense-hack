@@ -1,22 +1,23 @@
 CREATE TABLE measurements
 (
-    id                 SERIAL PRIMARY KEY,
-    timestamp          BIGINT NOT NULL,
-    session_name       TEXT   NOT NULL,
-    magnetic_x         REAL   NOT NULL,
-    magnetic_y         REAL   NOT NULL,
-    magnetic_z         REAL   NOT NULL,
+    id                SERIAL PRIMARY KEY,
+    timestamp         BIGINT NOT NULL,
+    session_name      TEXT   NOT NULL,
+    magnetic_x        REAL   NOT NULL,
+    magnetic_y        REAL   NOT NULL,
+    magnetic_z        REAL   NOT NULL,
     magnetic_magnitude REAL   NOT NULL,
-    pitch              REAL   NOT NULL,
-    roll               REAL   NOT NULL,
-    acceleration_x     REAL   NOT NULL,
-    acceleration_y     REAL   NOT NULL,
-    acceleration_z     REAL   NOT NULL,
-    latitude           REAL   NOT NULL,
-    longitude          REAL   NOT NULL,
-    accuracy           REAL   NOT NULL,
-    altitude           REAL   NOT NULL,
-    altitude_accuracy  REAL   NOT NULL
+    acceleration_x    REAL   NOT NULL,
+    acceleration_y    REAL   NOT NULL,
+    acceleration_z    REAL   NOT NULL,
+    orientation_pitch REAL   NOT NULL,
+    orientation_roll  REAL   NOT NULL,
+    orientation_yaw   REAL   NOT NULL,
+    latitude          REAL   NOT NULL,
+    longitude         REAL   NOT NULL,
+    accuracy          REAL   NOT NULL,
+    altitude          REAL   NOT NULL,
+    altitude_accuracy REAL   NOT NULL
 );
 
 -- Add an index on session_name for faster queries

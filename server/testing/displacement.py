@@ -1,85 +1,141 @@
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
 import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+import pandas as pd
+import numpy as np
+from scipy.signal import butter, filtfilt
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-class AccelerationProcessor:
+class ImprovedAccelerationProcessor:
     def __init__(self, csv_file_path):
-        """Initialize the processor with the CSV file path."""
         self.csv_file_path = csv_file_path
         self.df = None
+        self.calibration_samples = 100  # Number of initial samples for calibration
+        self.gravity = 9.81  # m/s²
+        self.zupt_threshold = 0.05  # Threshold for zero-velocity detection
+        self.zupt_window = 5  # Window size for zero-velocity detection
 
     def load_data(self):
-        """Load and validate the CSV data."""
         try:
             self.df = pd.read_csv(self.csv_file_path)
-            required_columns = ['timestamp', 'acceleration_x', 'acceleration_y', 'acceleration_z']
-
-            # Validate required columns
-            missing_columns = [col for col in required_columns if col not in self.df.columns]
-            if missing_columns:
-                raise ValueError(f"Missing required columns: {missing_columns}")
-
-            # Remove any NaN values
-            self.df = self.df.dropna(subset=required_columns)
-
             logger.info(f"Successfully loaded {len(self.df)} rows of data")
             return True
-
         except Exception as e:
             logger.error(f"Error loading CSV file: {str(e)}")
             return False
 
+    def calibrate_sensor(self):
+        """Calibrate initial orientation and sensor bias"""
+        # Use initial samples to determine gravity direction and sensor bias
+        initial_data = self.df.head(self.calibration_samples)
+
+        # Calculate mean acceleration components during calibration
+        acc_mean = initial_data[['acceleration_x', 'acceleration_y', 'acceleration_z']].mean()
+
+        # Estimate gravity direction
+        total_acc = np.sqrt(np.sum(acc_mean ** 2))
+        gravity_direction = acc_mean / total_acc
+
+        # Store calibration results
+        self.gravity_direction = gravity_direction
+        self.bias = acc_mean - gravity_direction * self.gravity
+
+        logger.info(f"Calibration completed. Gravity direction: {gravity_direction}")
+        return gravity_direction, self.bias
+
+    def apply_high_pass_filter(self, data, cutoff=0.1, fs=100):
+        """Apply high-pass filter to remove low-frequency drift"""
+        nyquist = fs * 0.5
+        normal_cutoff = cutoff / nyquist
+        b, a = butter(2, normal_cutoff, btype='high')
+        return filtfilt(b, a, data)
+
+    def detect_stationary_periods(self):
+        """Detect periods where the device is stationary"""
+        acc_magnitude = np.sqrt(
+            self.df['acceleration_x'] ** 2 +
+            self.df['acceleration_y'] ** 2 +
+            self.df['acceleration_z'] ** 2
+        )
+
+        # Calculate acceleration variance in sliding windows
+        acc_variance = acc_magnitude.rolling(window=self.zupt_window).var()
+
+        # Mark stationary periods where variance is below threshold
+        return acc_variance < self.zupt_threshold
+
+    def remove_gravity(self, gravity_direction):
+        """Remove gravitational acceleration from measurements"""
+        acc_columns = ['acceleration_x', 'acceleration_y', 'acceleration_z']
+        acc_data = self.df[acc_columns].values
+
+        # Remove gravity component along estimated direction
+        gravity_removal = acc_data - np.outer(
+            np.ones(len(acc_data)),
+            gravity_direction * self.gravity
+        )
+
+        # Update DataFrame with gravity-corrected accelerations
+        for i, col in enumerate(acc_columns):
+            self.df[f'{col}_corrected'] = gravity_removal[:, i]
+
     def process_acceleration(self):
-        """Process acceleration data using improved integration methods."""
         if self.df is None:
             raise ValueError("Data not loaded. Call load_data() first.")
 
         try:
-            # Convert timestamp to seconds and ensure it's monotonically increasing
+            # Convert timestamp to seconds and sort
             self.df['time_sec'] = (self.df['timestamp'] - self.df['timestamp'].iloc[0]) / 1000
             self.df = self.df.sort_values('time_sec').reset_index(drop=True)
+
+            # Perform initial calibration
+            gravity_direction, bias = self.calibrate_sensor()
+
+            # Remove gravity and apply bias correction
+            self.remove_gravity(gravity_direction)
+
+            # Apply high-pass filter to corrected accelerations
+            for axis in ['x', 'y', 'z']:
+                self.df[f'acceleration_{axis}_filtered'] = self.apply_high_pass_filter(
+                    self.df[f'acceleration_{axis}_corrected']
+                )
+
+            # Detect stationary periods for ZUPT
+            is_stationary = self.detect_stationary_periods()
 
             # Calculate time differences
             dt = self.df['time_sec'].diff().fillna(0).values
 
-            # Initialize arrays for velocity and position
+            # Initialize arrays
             velocities = np.zeros((len(self.df), 3))
             positions = np.zeros((len(self.df), 3))
 
-            # Get acceleration data as numpy arrays for faster processing
-            acc_x = self.df['acceleration_x'].values
-            acc_y = self.df['acceleration_y'].values
-            acc_z = self.df['acceleration_z'].values
-
-            # Integrate acceleration to velocity using forward Euler method
+            # Integration loop with ZUPT correction
             for i in range(1, len(self.df)):
-                velocities[i] = velocities[i - 1] + np.array([acc_x[i], acc_y[i], acc_z[i]]) * dt[i]
+                if is_stationary[i]:
+                    # Apply zero-velocity update
+                    velocities[i] = 0
+                else:
+                    # Update velocities using filtered acceleration
+                    velocities[i] = velocities[i - 1] + np.array([
+                        self.df[f'acceleration_{axis}_filtered'].iloc[i]
+                        for axis in ['x', 'y', 'z']
+                    ]) * dt[i]
+
+                # Update positions
                 positions[i] = positions[i - 1] + velocities[i] * dt[i]
 
             # Add results to DataFrame
-            self.df['velocity_x'], self.df['velocity_y'], self.df['velocity_z'] = velocities[:, 0], velocities[:,
-                                                                                                    1], velocities[:, 2]
-            self.df['position_x'], self.df['position_y'], self.df['position_z'] = positions[:, 0], positions[:,
-                                                                                                   1], positions[:, 2]
+            for i, axis in enumerate(['x', 'y', 'z']):
+                self.df[f'velocity_{axis}'] = velocities[:, i]
+                self.df[f'position_{axis}'] = positions[:, i]
 
-            # Apply a simple moving average to smooth the data
-            window_size = min(5, len(self.df) // 2)  # Ensure window size isn't too large for the data
-            self.df[['position_x', 'position_y', 'position_z']] = self.df[
-                ['position_x', 'position_y', 'position_z']].rolling(
-                window=window_size,
-                center=True,
-                min_periods=1  # Allow partial windows
-            ).mean()
-
-            logger.info("Successfully processed acceleration data")
+            logger.info("Successfully processed acceleration data with improvements")
             return self.df[['time_sec', 'position_x', 'position_y', 'position_z']]
 
         except Exception as e:
@@ -87,97 +143,17 @@ class AccelerationProcessor:
             raise
 
 
-class TrajectoryVisualizer:
-    def __init__(self, data):
-        """Initialize the visualizer with processed position data."""
-        self.data = data
-        self.fig = None
-        self.ax = None
-        self.scatter = None
-        self.line = None
-        self.animation = None
-
-    def setup_plot(self):
-        """Set up the plot with proper styling and limits."""
-        self.fig, self.ax = plt.subplots(figsize=(10, 8))
-
-        # Set limits with some padding
-        pad = 0.1
-        x_range = self.data['position_x'].max() - self.data['position_x'].min()
-        y_range = self.data['position_y'].max() - self.data['position_y'].min()
-
-        if x_range == 0: x_range = 1  # Handle case where all x values are the same
-        if y_range == 0: y_range = 1  # Handle case where all y values are the same
-
-        self.ax.set_xlim(
-            self.data['position_x'].min() - x_range * pad,
-            self.data['position_x'].max() + x_range * pad
-        )
-        self.ax.set_ylim(
-            self.data['position_y'].min() - y_range * pad,
-            self.data['position_y'].max() + y_range * pad
-        )
-
-        # Style the plot
-        self.ax.set_xlabel('X Position')
-        self.ax.set_ylabel('Y Position')
-        self.ax.set_title('Object Trajectory')
-        self.ax.grid(True, linestyle='--', alpha=0.7)
-
-        # Create empty scatter plot for current position
-        self.scatter = self.ax.scatter([], [], c='red', s=100, label='Current Position')
-        # Create empty line plot for trajectory
-        self.line, = self.ax.plot([], [], 'b-', alpha=0.5, label='Trajectory')
-
-        self.ax.legend()
-
-    def animate(self, frame):
-        """Animation function for updating the plot."""
-        # Ensure frame index is valid
-        frame = min(frame, len(self.data) - 1)
-
-        # Update trajectory line
-        self.line.set_data(
-            self.data['position_x'][:frame + 1],
-            self.data['position_y'][:frame + 1]
-        )
-
-        # Update current position
-        self.scatter.set_offsets([
-            [self.data['position_x'].iloc[frame],
-             self.data['position_y'].iloc[frame]]
-        ])
-
-        return self.scatter, self.line
-
-    def create_animation(self, interval=50):
-        """Create and display the animation."""
-        if self.fig is None:
-            self.setup_plot()
-
-        self.animation = FuncAnimation(
-            self.fig,
-            self.animate,
-            frames=len(self.data),
-            interval=interval,
-            blit=True,
-            repeat=False
-        )
-
-        plt.show()
-
-
 def main(csv_file_path):
-    """Main function to process and visualize acceleration data."""
     try:
         # Process acceleration data
         processor = AccelerationProcessor(csv_file_path)
         if not processor.load_data():
             return
 
+        # Get processed position data
         positions_df = processor.process_acceleration()
 
-        # Visualize trajectory
+        # Create and show animation
         visualizer = TrajectoryVisualizer(positions_df)
         visualizer.create_animation()
 

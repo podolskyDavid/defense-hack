@@ -9,12 +9,10 @@ import psycopg
 
 from utils.export_to_csv import export_measurements_to_csv, download_measurements_to_csv
 
-# Get database URL from environment variable, with a default value
 DATABASE_URL = os.getenv("DATABASE_URL", "postgres:///mag_mapping")
 
 app = FastAPI()
 
-# Enable CORS for development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,7 +22,6 @@ app.add_middleware(
 )
 
 
-# Data models remain the same
 class LocationData(BaseModel):
     latitude: float
     longitude: float
@@ -44,8 +41,12 @@ class MagneticData(BaseModel):
     y: float
     z: float
     magnitude: float
+
+
+class OrientationData(BaseModel):
     pitch: float
     roll: float
+    yaw: float
 
 
 class MagneticSample(BaseModel):
@@ -53,10 +54,10 @@ class MagneticSample(BaseModel):
     session_name: str
     magnetic: MagneticData
     acceleration: AccelerationData
+    orientation: OrientationData
     location: LocationData
 
 
-# Initialize database
 def init_db():
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -69,11 +70,12 @@ def init_db():
                     magnetic_y REAL,
                     magnetic_z REAL,
                     magnetic_magnitude REAL,
-                    pitch REAL,
-                    roll REAL,
                     acceleration_x REAL,
                     acceleration_y REAL,
                     acceleration_z REAL,
+                    orientation_pitch REAL,
+                    orientation_roll REAL,
+                    orientation_yaw REAL,
                     latitude REAL,
                     longitude REAL,
                     accuracy REAL,
@@ -89,7 +91,6 @@ async def startup_event():
     init_db()
 
 
-# Single measurement endpoint
 @app.post("/api/measurement")
 async def add_measurement(sample: MagneticSample):
     with psycopg.connect(DATABASE_URL) as conn:
@@ -98,11 +99,11 @@ async def add_measurement(sample: MagneticSample):
                 INSERT INTO measurements (
                     timestamp, session_name,
                     magnetic_x, magnetic_y, magnetic_z, magnetic_magnitude,
-                    pitch, roll,
                     acceleration_x, acceleration_y, acceleration_z,
+                    orientation_pitch, orientation_roll, orientation_yaw,
                     latitude, longitude, accuracy,
                     altitude, altitude_accuracy
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 sample.timestamp,
@@ -111,11 +112,12 @@ async def add_measurement(sample: MagneticSample):
                 sample.magnetic.y,
                 sample.magnetic.z,
                 sample.magnetic.magnitude,
-                sample.magnetic.pitch,
-                sample.magnetic.roll,
                 sample.acceleration.x,
                 sample.acceleration.y,
                 sample.acceleration.z,
+                sample.orientation.pitch,
+                sample.orientation.roll,
+                sample.orientation.yaw,
                 sample.location.latitude,
                 sample.location.longitude,
                 sample.location.accuracy,
@@ -137,11 +139,11 @@ async def add_measurements(samples: List[MagneticSample]):
                     INSERT INTO measurements (
                         timestamp, session_name,
                         magnetic_x, magnetic_y, magnetic_z, magnetic_magnitude,
-                        pitch, roll,
                         acceleration_x, acceleration_y, acceleration_z,
+                        orientation_pitch, orientation_roll, orientation_yaw,
                         latitude, longitude, accuracy,
                         altitude, altitude_accuracy
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     sample.timestamp,
                     sample.session_name,
@@ -149,11 +151,12 @@ async def add_measurements(samples: List[MagneticSample]):
                     sample.magnetic.y,
                     sample.magnetic.z,
                     sample.magnetic.magnitude,
-                    sample.magnetic.pitch,
-                    sample.magnetic.roll,
                     sample.acceleration.x,
                     sample.acceleration.y,
                     sample.acceleration.z,
+                    sample.orientation.pitch,
+                    sample.orientation.roll,
+                    sample.orientation.yaw,
                     sample.location.latitude,
                     sample.location.longitude,
                     sample.location.accuracy,
@@ -168,16 +171,13 @@ async def add_measurements(samples: List[MagneticSample]):
 @app.get("/api/export")
 async def export_data(session_name: Optional[str] = Query(None, description="Filter by session name")):
     try:
-        # Use the utility function to get CSV content
         csv_content = download_measurements_to_csv(session_name=session_name)
 
-        # Generate filename with timestamp and optional session name
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"measurements_{timestamp}.csv"
         if session_name:
             filename = f"measurements_{session_name}_{timestamp}.csv"
 
-        # Create response with CSV content
         response = Response(
             content=csv_content,
             media_type="text/csv",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {useState, useEffect, useRef} from "react";
 import {
   StyleSheet,
   View,
@@ -8,43 +8,53 @@ import {
   ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
-import { Magnetometer, Accelerometer } from "expo-sensors";
+import {Magnetometer, Accelerometer, Gyroscope} from "expo-sensors";
 import * as Location from "expo-location";
-import type { LocationObject, LocationSubscription } from "expo-location";
-import type { Subscription } from "expo-sensors/build/Subscription";
-import type { AccelerometerMeasurement } from "expo-sensors";
+import type {LocationObject, LocationSubscription} from "expo-location";
+import type {Subscription} from "expo-sensors/build/Subscription";
+import type {
+  AccelerometerMeasurement,
+  GyroscopeMeasurement,
+} from "expo-sensors";
+
+interface Vector3D {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export default function MagnetometerScreen(): React.JSX.Element {
-  const [magnetometerData, setMagnetometerData] = useState({
+  const [magnetometerData, setMagnetometerData] = useState<Vector3D>({
     x: 0,
     y: 0,
     z: 0,
   });
-  const [location, setLocation] = useState<Location.LocationObjectCoords | null>(
-    null
-  );
-  const [magnetometerSubscription, setMagnetometerSubscription] =
-    useState<Subscription | null>(null);
-  const [locationSubscription, setLocationSubscription] =
-    useState<LocationSubscription | null>(null);
-  const [accelerometerSubscription, setAccelerometerSubscription] =
-    useState<Subscription | null>(null);
-  const [accelerometerData, setAccelerometerData] =
-    useState<AccelerometerMeasurement | null>({
-      timestamp: 0,
-      x: 0,
-      y: 0,
-      z: 0
-    });
+  const [location, setLocation] = useState<Location.LocationObjectCoords | null>(null);
+  const [magnetometerSubscription, setMagnetometerSubscription] = useState<Subscription | null>(null);
+  const [locationSubscription, setLocationSubscription] = useState<LocationSubscription | null>(null);
+  const [accelerometerSubscription, setAccelerometerSubscription] = useState<Subscription | null>(null);
+  const [gyroscopeSubscription, setGyroscopeSubscription] = useState<Subscription | null>(null);
+  const [accelerometerData, setAccelerometerData] = useState<AccelerometerMeasurement>({
+    x: 0,
+    y: 0,
+    z: 0,
+    timestamp: 0,
+  });
+  const [gyroscopeData, setGyroscopeData] = useState<GyroscopeMeasurement>({
+    x: 0,
+    y: 0,
+    z: 0,
+    timestamp: 0,
+  });
   const [sessionName, setSessionName] = useState<string>("");
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [dataBatch, setDataBatch] = useState<any[]>([]);
 
-  const magnetometerDataRef = useRef(magnetometerData);
-  const accelerometerDataRef = useRef(accelerometerData);
-  const locationDataRef = useRef(location);
-  const pitchRef = useRef<number>(0);
-  const rollRef = useRef<number>(0);
+  // Refs for latest data
+  const magnetometerDataRef = useRef<Vector3D>(magnetometerData);
+  const accelerometerDataRef = useRef<AccelerometerMeasurement>(accelerometerData);
+  const gyroscopeDataRef = useRef<GyroscopeMeasurement>(gyroscopeData);
+  const locationDataRef = useRef<Location.LocationObjectCoords | null>(location);
 
   useEffect(() => {
     magnetometerDataRef.current = magnetometerData;
@@ -52,12 +62,11 @@ export default function MagnetometerScreen(): React.JSX.Element {
 
   useEffect(() => {
     accelerometerDataRef.current = accelerometerData;
-    if (accelerometerData) {
-      const { pitch, roll } = calculateTilt(accelerometerData);
-      pitchRef.current = pitch;
-      rollRef.current = roll;
-    }
   }, [accelerometerData]);
+
+  useEffect(() => {
+    gyroscopeDataRef.current = gyroscopeData;
+  }, [gyroscopeData]);
 
   useEffect(() => {
     locationDataRef.current = location;
@@ -75,13 +84,13 @@ export default function MagnetometerScreen(): React.JSX.Element {
     if (isRecording) {
       interval = setInterval(() => {
         recordDataBatch();
-      }, 500); // Record data every 500 milliseconds
+      }, 100);  // record data
     }
     return () => clearInterval(interval);
   }, [isRecording]);
 
   useEffect(() => {
-    if (dataBatch.length >= 5) {
+    if (dataBatch.length >= 10) {
       sendDataToServer(dataBatch);
       setDataBatch([]);
     }
@@ -89,7 +98,7 @@ export default function MagnetometerScreen(): React.JSX.Element {
 
   const requestPermissions = async (): Promise<void> => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const {status} = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         console.error("Permission to access location was denied");
       }
@@ -119,53 +128,13 @@ export default function MagnetometerScreen(): React.JSX.Element {
     }
   };
 
-  const calculateTilt = (
-    data: AccelerometerMeasurement | null
-  ): { pitch: number; roll: number } => {
-    if (!data) return { pitch: 0, roll: 0 };
-
-    const { x, y, z } = data;
-    // Calculate pitch and roll in radians
-    const pitch = Math.atan2(y, Math.sqrt(x * x + z * z));
-    const roll = Math.atan2(-x, z);
-
-    // Convert to degrees for display
-    return {
-      pitch: pitch * (180 / Math.PI),
-      roll: roll * (180 / Math.PI)
-    };
-  };
-
-  const removeGravity = (
-    data: AccelerometerMeasurement,
-    pitch: number,
-    roll: number
-  ): { x: number; y: number; z: number } => {
-    // Convert angles back to radians for calculations
-    const pitchRad = pitch * (Math.PI / 180);
-    const rollRad = roll * (Math.PI / 180);
-
-    // Calculate gravity components on each axis based on device orientation
-    const g = 9.81; // gravitational acceleration in m/s²
-    const gX = g * Math.sin(rollRad);
-    const gY = -g * Math.sin(pitchRad) * Math.cos(rollRad);
-    const gZ = -g * Math.cos(pitchRad) * Math.cos(rollRad);
-
-    // Remove gravity components from raw acceleration
-    return {
-      x: data.x - gX / g, // Convert back to g units by dividing by g
-      y: data.y - gY / g,
-      z: data.z - gZ / g
-    };
-  };
-
   const subscribeToMagnetometer = (): void => {
     setMagnetometerSubscription(
       Magnetometer.addListener((data) => {
         setMagnetometerData(data);
       })
     );
-    Magnetometer.setUpdateInterval(16); // ~60Hz
+    Magnetometer.setUpdateInterval(100);
   };
 
   const subscribeToAccelerometer = (): void => {
@@ -174,43 +143,48 @@ export default function MagnetometerScreen(): React.JSX.Element {
         setAccelerometerData(data);
       })
     );
-    Accelerometer.setUpdateInterval(16); // ~60Hz
+    Accelerometer.setUpdateInterval(100);
+  };
+
+  const subscribeToGyroscope = (): void => {
+    setGyroscopeSubscription(
+      Gyroscope.addListener((data) => {
+        setGyroscopeData(data);
+      })
+    );
+    Gyroscope.setUpdateInterval(100);
   };
 
   const subscribeToLocation = async (): Promise<void> => {
     const locationSub = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: 500,
+        timeInterval: 100,
         distanceInterval: 0.5,
       },
       (locationObject: LocationObject) => {
         setLocation(locationObject.coords);
       }
     );
-
     setLocationSubscription(locationSub);
   };
 
   const subscribe = async (): Promise<void> => {
     subscribeToMagnetometer();
     subscribeToAccelerometer();
+    subscribeToGyroscope();
     await subscribeToLocation();
   };
 
   const unsubscribe = (): void => {
-    if (magnetometerSubscription) {
-      magnetometerSubscription.remove();
-      setMagnetometerSubscription(null);
-    }
-    if (locationSubscription) {
-      locationSubscription.remove();
-      setLocationSubscription(null);
-    }
-    if (accelerometerSubscription) {
-      accelerometerSubscription.remove();
-      setAccelerometerSubscription(null);
-    }
+    magnetometerSubscription?.remove();
+    setMagnetometerSubscription(null);
+    locationSubscription?.remove();
+    setLocationSubscription(null);
+    accelerometerSubscription?.remove();
+    setAccelerometerSubscription(null);
+    gyroscopeSubscription?.remove();
+    setGyroscopeSubscription(null);
   };
 
   const toggleRecording = (): void => {
@@ -224,13 +198,11 @@ export default function MagnetometerScreen(): React.JSX.Element {
 
   const recordDataBatch = (): void => {
     const currentMagnetometerData = magnetometerDataRef.current;
-    const currentAccelerometerData = accelerometerDataRef.current;
     const currentLocationData = locationDataRef.current;
+    const currentAccelerometerData = accelerometerDataRef.current;
+    const currentGyroscopeData = gyroscopeDataRef.current;
 
-    if (currentMagnetometerData && currentLocationData && currentAccelerometerData) {
-      const { pitch, roll } = calculateTilt(currentAccelerometerData);
-      const gravityCompensatedAccel = removeGravity(currentAccelerometerData, pitch, roll);
-
+    if (currentMagnetometerData && currentLocationData) {
       const batchItem = {
         timestamp: Date.now(),
         session_name: sessionName,
@@ -243,8 +215,6 @@ export default function MagnetometerScreen(): React.JSX.Element {
             currentMagnetometerData.y ** 2 +
             currentMagnetometerData.z ** 2
           ),
-          pitch,
-          roll,
         },
         location: {
           latitude: currentLocationData.latitude,
@@ -254,57 +224,45 @@ export default function MagnetometerScreen(): React.JSX.Element {
           altitudeAccuracy: currentLocationData.altitudeAccuracy,
         },
         acceleration: {
-          x: gravityCompensatedAccel.x,
-          y: gravityCompensatedAccel.y,
-          z: gravityCompensatedAccel.z,
+          x: currentAccelerometerData.x,
+          y: currentAccelerometerData.y,
+          z: currentAccelerometerData.z,
         },
+        orientation: {
+          pitch: currentGyroscopeData.x,
+          roll: currentGyroscopeData.y,
+          yaw: currentGyroscopeData.z,
+        }
       };
       setDataBatch((prevBatch) => [...prevBatch, batchItem]);
     }
   };
 
+  // Calculate magnetic field magnitude
   const magnitude = Math.sqrt(
     magnetometerData.x ** 2 +
     magnetometerData.y ** 2 +
     magnetometerData.z ** 2
   );
 
-  const { pitch, roll } = calculateTilt(accelerometerData);
-
   return (
     <ScrollView style={styles.container}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <KeyboardAvoidingView style={{flex: 1}} behavior="padding">
         <View style={styles.dataContainer}>
-          <Text style={styles.heading}>Magnetic Field Components (μT):</Text>
-          <Text style={styles.text}>
-            X: {magnetometerData.x.toFixed(2)}
-          </Text>
-          <Text style={styles.text}>
-            Y: {magnetometerData.y.toFixed(2)}
-          </Text>
-          <Text style={styles.text}>
-            Z: {magnetometerData.z.toFixed(2)}
-          </Text>
-          <Text style={styles.text}>
-            Magnitude: {magnitude.toFixed(2)}
-          </Text>
+          <Text style={styles.heading}>Magnetic Field Components:</Text>
+          <Text style={styles.text}>X: {magnetometerData.x.toFixed(2)}</Text>
+          <Text style={styles.text}>Y: {magnetometerData.y.toFixed(2)}</Text>
+          <Text style={styles.text}>Z: {magnetometerData.z.toFixed(2)}</Text>
+          <Text style={styles.text}>Magnitude: {magnitude.toFixed(2)}</Text>
         </View>
 
         {location && (
           <View style={styles.dataContainer}>
             <Text style={styles.heading}>Location:</Text>
-            <Text style={styles.text}>
-              Latitude: {location.latitude.toFixed(6)}
-            </Text>
-            <Text style={styles.text}>
-              Longitude: {location.longitude.toFixed(6)}
-            </Text>
-            <Text style={styles.text}>
-              Accuracy: ±{location.accuracy} meters
-            </Text>
-            <Text style={styles.text}>
-              Altitude: {location.altitude?.toFixed(2)} meters
-            </Text>
+            <Text style={styles.text}>Latitude: {location.latitude.toFixed(6)}</Text>
+            <Text style={styles.text}>Longitude: {location.longitude.toFixed(6)}</Text>
+            <Text style={styles.text}>Accuracy: ±{location.accuracy} meters</Text>
+            <Text style={styles.text}>Altitude: {location.altitude?.toFixed(2)} meters</Text>
             <Text style={styles.text}>
               Altitude Accuracy: ±{location.altitudeAccuracy} meters
             </Text>
@@ -312,25 +270,17 @@ export default function MagnetometerScreen(): React.JSX.Element {
         )}
 
         <View style={styles.dataContainer}>
-          <Text style={styles.heading}>Device Tilt:</Text>
-          <Text style={styles.text}>Pitch: {pitch.toFixed(2)}°</Text>
-          <Text style={styles.text}>Roll: {roll.toFixed(2)}°</Text>
+          <Text style={styles.heading}>Raw Acceleration:</Text>
+          <Text style={styles.text}>X: {accelerometerData.x.toFixed(4)}</Text>
+          <Text style={styles.text}>Y: {accelerometerData.y.toFixed(4)}</Text>
+          <Text style={styles.text}>Z: {accelerometerData.z.toFixed(4)}</Text>
         </View>
 
         <View style={styles.dataContainer}>
-          <Text style={styles.heading}>Linear Acceleration (g):</Text>
-          <Text style={styles.text}>
-            X: {accelerometerData ?
-            removeGravity(accelerometerData, pitch, roll).x.toFixed(4) : "0.0000"}
-          </Text>
-          <Text style={styles.text}>
-            Y: {accelerometerData ?
-            removeGravity(accelerometerData, pitch, roll).y.toFixed(4) : "0.0000"}
-          </Text>
-          <Text style={styles.text}>
-            Z: {accelerometerData ?
-            removeGravity(accelerometerData, pitch, roll).z.toFixed(4) : "0.0000"}
-          </Text>
+          <Text style={styles.heading}>Orientation:</Text>
+          <Text style={styles.text}>Pitch: {gyroscopeData.x.toFixed(4)}</Text>
+          <Text style={styles.text}>Roll: {gyroscopeData.y.toFixed(4)}</Text>
+          <Text style={styles.text}>Yaw: {gyroscopeData.z.toFixed(4)}</Text>
         </View>
 
         <View style={styles.dataContainer}>
