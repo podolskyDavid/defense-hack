@@ -179,12 +179,24 @@ class IMUPathTracker:
 
         # Top view (X-Y plane)
         ax2 = fig.add_subplot(222)
-        ax2.plot(positions[:, 0], positions[:, 1])
-        ax2.scatter(positions[0, 0], positions[0, 1], color='green', label='Start')
-        ax2.scatter(positions[-1, 0], positions[-1, 1], color='red', label='End')
+        # Plot the connecting line with lower alpha for clarity
+        ax2.plot(positions[:, 0], positions[:, 1], alpha=0.3, color='blue', label='Path')
+        # Plot all points
+        ax2.scatter(positions[:, 0], positions[:, 1], s=20, alpha=0.5, color='blue', label='Points')
+        # Highlight start and end points
+        ax2.scatter(positions[0, 0], positions[0, 1], s=100, color='green', label='Start', zorder=5)
+        ax2.scatter(positions[-1, 0], positions[-1, 1], s=100, color='red', label='End', zorder=5)
         ax2.set_xlabel('X (m)')
         ax2.set_ylabel('Y (m)')
-        ax2.set_title('Top View')
+        ax2.set_title('Top View (X-Y Plane)')
+        # Add a colorbar to show time progression
+        scatter = ax2.scatter(positions[:, 0], positions[:, 1],
+                              c=np.arange(len(positions)),
+                              cmap='viridis',
+                              alpha=0.5,
+                              label='Time progression')
+        plt.colorbar(scatter, ax=ax2, label='Time step')
+        ax2.grid(True, linestyle='--', alpha=0.6)
         ax2.legend()
 
         # Z position over time

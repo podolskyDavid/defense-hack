@@ -84,7 +84,7 @@ export default function MagnetometerScreen(): React.JSX.Element {
     if (isRecording) {
       interval = setInterval(() => {
         recordDataBatch();
-      }, 100);  // record data
+      }, 200);  // record data
     }
     return () => clearInterval(interval);
   }, [isRecording]);
@@ -159,7 +159,7 @@ export default function MagnetometerScreen(): React.JSX.Element {
     const locationSub = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: 100,
+        timeInterval: 200,
         distanceInterval: 0.5,
       },
       (locationObject: LocationObject) => {
